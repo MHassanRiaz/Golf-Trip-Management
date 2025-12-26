@@ -1,0 +1,260 @@
+// Prisma schema for GINApp MVP
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  password       String
+  name           String
+  ghinNumber     String?       @map("ghin_number")
+  handicapIndex  Decimal?      @map("handicap_index") @db.Decimal(4, 1)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  trips          Trip[]
+  participants   Participant[]
+
+  @@map("users")
+}
+
+model Trip {
+  id          String   @id @default(uuid())
+  organizerId String   @map("organizer_id")
+  name        String
+  location    String
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime @map("end_date") @db.Date
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organizer    User          @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  teams        Team[]
+  participants Participant[]
+  rounds       Round[]
+  expenses     Expense[]
+
+  @@map("trips")
+}
+
+model Team {
+  id        String   @id @default(uuid())
+  tripId    String   @map("trip_id")
+  name      String
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  trip              Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  participants      Participant[]
+  matchParticipants MatchParticipant[]
+  wonMatches        Match[]           @relation("WinnerTeam")
+
+  @@map("teams")
+}
+
+model Participant {
+  id            String   @id @default(uuid())
+  tripId        String   @map("trip_id")
+  teamId        String   @map("team_id")
+  userId        String?  @map("user_id")
+  name          String
+  ghinNumber    String?  @map("ghin_number")
+  handicapIndex Decimal  @map("handicap_index") @db.Decimal(4, 1)
+  email         String?
+  phone         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  trip                  Trip                    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  team                  Team                    @relation(fields: [teamId], references: [id])
+  user                  User?                   @relation(fields: [userId], references: [id])
+  foursomeParticipants  FoursomeParticipant[]
+  matchParticipants     MatchParticipant[]
+  holeScores            HoleScore[]
+  expensesPaid          Expense[]
+  expenseSplits         ExpenseSplit[]
+
+  @@map("participants")
+}
+
+model Round {
+  id           String      @id @default(uuid())
+  tripId       String      @map("trip_id")
+  roundNumber  Int         @map("round_number")
+  courseName   String      @map("course_name")
+  teeBox       String      @map("tee_box")
+  format       RoundFormat
+  drinkingMode Boolean     @default(false) @map("drinking_mode")
+  date         DateTime    @db.Date
+  status       RoundStatus @default(PENDING)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  trip      Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  foursomes Foursome[]
+  matches   Match[]
+
+  @@unique([tripId, roundNumber])
+  @@map("rounds")
+}
+
+model Foursome {
+  id             String   @id @default(uuid())
+  roundId        String   @map("round_id")
+  foursomeNumber Int      @map("foursome_number")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  round        Round                 @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  participants FoursomeParticipant[]
+  matches      Match[]
+
+  @@map("foursomes")
+}
+
+model FoursomeParticipant {
+  id            String @id @default(uuid())
+  foursomeId    String @map("foursome_id")
+  participantId String @map("participant_id")
+  position      Int
+
+  foursome    Foursome    @relation(fields: [foursomeId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id])
+
+  @@map("foursome_participants")
+}
+
+model Match {
+  id                String       @id @default(uuid())
+  roundId           String       @map("round_id")
+  foursomeId        String       @map("foursome_id")
+  matchNumber       Int          @map("match_number")
+  format            MatchFormat
+  scorerId          String       @map("scorer_id")
+  status            MatchStatus  @default(PLANNED)
+  team1Points       Decimal      @default(0) @map("team1_points") @db.Decimal(4, 1)
+  team2Points       Decimal      @default(0) @map("team2_points") @db.Decimal(4, 1)
+  team1DrinkPoints  Decimal      @default(0) @map("team1_drink_points") @db.Decimal(4, 1)
+  team2DrinkPoints  Decimal      @default(0) @map("team2_drink_points") @db.Decimal(4, 1)
+  winnerTeamId      String?      @map("winner_team_id")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  completedAt       DateTime?    @map("completed_at")
+
+  round        Round              @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  foursome     Foursome           @relation(fields: [foursomeId], references: [id])
+  winnerTeam   Team?              @relation("WinnerTeam", fields: [winnerTeamId], references: [id])
+  participants MatchParticipant[]
+  holeScores   HoleScore[]
+
+  @@map("matches")
+}
+
+model MatchParticipant {
+  id            String @id @default(uuid())
+  matchId       String @map("match_id")
+  participantId String @map("participant_id")
+  teamId        String @map("team_id")
+  matchHandicap Int    @map("match_handicap")
+  position      Int
+
+  match       Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id])
+  team        Team        @relation(fields: [teamId], references: [id])
+
+  @@map("match_participants")
+}
+
+model HoleScore {
+  id                    String   @id @default(uuid())
+  matchId               String   @map("match_id")
+  participantId         String   @map("participant_id")
+  holeNumber            Int      @map("hole_number")
+  par                   Int
+  strokeIndex           Int      @map("stroke_index")
+  grossStrokes          Int      @map("gross_strokes")
+  netStrokes            Int      @map("net_strokes")
+  drinkCount            Int      @default(0) @map("drink_count")
+  drinkingAdjustedNet   Int      @map("drinking_adjusted_net")
+  strokesReceived       Int      @map("strokes_received")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  match       Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id])
+
+  @@unique([matchId, holeNumber, participantId])
+  @@map("hole_scores")
+}
+
+model Expense {
+  id          String          @id @default(uuid())
+  tripId      String          @map("trip_id")
+  payerId     String          @map("payer_id")
+  description String
+  totalAmount Decimal         @map("total_amount") @db.Decimal(10, 2)
+  category    ExpenseCategory
+  date        DateTime        @db.Date
+  splitType   SplitType       @map("split_type")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  trip   Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  payer  Participant    @relation(fields: [payerId], references: [id])
+  splits ExpenseSplit[]
+
+  @@map("expenses")
+}
+
+model ExpenseSplit {
+  id            String  @id @default(uuid())
+  expenseId     String  @map("expense_id")
+  participantId String  @map("participant_id")
+  amount        Decimal @db.Decimal(10, 2)
+  paid          Boolean @default(false)
+
+  expense     Expense     @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id])
+
+  @@map("expense_splits")
+}
+
+// Enums
+enum RoundFormat {
+  TWO_V_TWO @map("2v2")
+  ONE_V_ONE @map("1v1")
+}
+
+enum MatchFormat {
+  TWO_V_TWO @map("2v2")
+  ONE_V_ONE @map("1v1")
+}
+
+enum RoundStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum MatchStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ExpenseCategory {
+  GOLF
+  FOOD
+  LODGING
+  TRANSPORTATION
+  OTHER
+}
+
+enum SplitType {
+  EQUAL
+  CUSTOM
+}
