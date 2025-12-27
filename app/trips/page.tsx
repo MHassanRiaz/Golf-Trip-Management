@@ -31,7 +31,7 @@ export default function TripsPage() {
         matches.length > 0 &&
         matches.every((match) => {
           const score = matchScores[match.id]
-          return score?.status === "completed"
+          // return score?.status === "completed"
         })
       if (allMatchesCompleted) {
         completedRounds++
