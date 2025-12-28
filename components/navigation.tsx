@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Trophy, BarChart3, DollarSign, Users, LogOut, Menu } from "lucide-react"
+import { Trophy, BarChart3, DollarSign, Users, LogOut, Menu, MapPin } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -11,8 +11,9 @@ import { useAuth } from "@/lib/auth-context"
 const navItems = [
   { href: "/dashboard", icon: BarChart3, label: "Dashboard" },
   { href: "/trips", icon: Trophy, label: "Trips" },
-  { href: "/scoring", icon: Users, label: "Scoring" },
-  { href: "/leaderboard", icon: Trophy, label: "Leaderboard" },
+  { href: "/players", icon: Users, label: "Players" },
+  { href: "/venues", icon: MapPin, label: "Venues" },
+  // { href: "/scoring", icon: Users, label: "Scoring" },
   { href: "/expenses", icon: DollarSign, label: "Expenses" },
 ]
 

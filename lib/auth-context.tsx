@@ -3,19 +3,26 @@
 import type React from "react"
 import { createContext, useContext, useState, useEffect } from "react"
 
+interface Player {
+  id: string
+  name: string
+  ghinNumber: string
+  email: string
+  handicap: number
+}
+
+interface TripPlayer {
+  id: string
+  playerId: string // Reference to global Player
+  tripId: string
+  team?: string // Team assignment for this trip
+  details?: string
+}
+
 interface User {
   id: string
   email: string
   name: string
-}
-
-interface Participant {
-  id: string
-  ghin: string // GHIN number - required field
-  name: string
-  handicap: number
-  team: string
-  details?: string
 }
 
 interface Round {
@@ -24,10 +31,10 @@ interface Round {
   tripId: string
   course: string
   date: string
-  format?: "2v2" | "1v1" // Added format field
-  drinkingMode?: boolean // Added drinking mode toggle
-  teeBox?: string // Added tee box field (e.g., "White", "Blue", "Gold")
-  teamIds?: string[] // Teams participating in this round
+  format?: "2v2" | "1v1"
+  drinkingMode?: boolean
+  teeBox?: string
+  teamIds?: string[]
   status: "planned" | "completed"
   createdAt: string
 }
@@ -37,31 +44,30 @@ interface Team {
   name: string
   tripId: string
   color: string
-  members: string[]
+  members: string[] // Now TripPlayer IDs instead of Participant IDs
   createdAt: string
 }
 
 interface Trip {
   id: string
   name: string
-  location: string
+  venueId: string
   startDate: string
   endDate: string
-  participants: number
   description: string
   createdAt: string
   status: "upcoming" | "active" | "completed"
 }
 
-interface TripWithParticipants extends Trip {
-  participantsList: Participant[]
+interface TripWithPlayers extends Trip {
+  playersList: TripPlayer[]
 }
 
 interface Foursome {
   id: string
   roundId: string
   name: string
-  players: string[] // participant IDs (must be exactly 4)
+  players: string[] // TripPlayer IDs (must be exactly 4)
   teeTime?: string
   createdAt: string
 }
@@ -71,10 +77,10 @@ interface Match {
   roundId: string
   foursomeId: string
   format: "2v2" | "1v1"
-  team1Players: string[] // participant IDs
-  team2Players: string[] // participant IDs
-  scorer?: string // participant ID assigned as scorer
-  matchHandicap?: number // calculated handicap for the match
+  team1Players: string[] // TripPlayer IDs
+  team2Players: string[] // TripPlayer IDs
+  scorer?: string // TripPlayer ID assigned as scorer
+  matchHandicap?: number
   status: "planned" | "in-progress" | "completed"
   createdAt: string
 }
@@ -103,10 +109,10 @@ interface Expense {
   amount: number
   category: string
   description: string
-  paidBy: string // participant ID
-  splitType: "equal" | "custom" // Added split type field
-  splitWith: string[] // participant IDs (for equal split)
-  customSplits?: Record<string, number> // For custom splits: participantId -> amount
+  paidBy: string // TripPlayer ID
+  splitType: "equal" | "custom"
+  splitWith: string[] // TripPlayer IDs
+  customSplits?: Record<string, number>
   date: string
   createdAt: string
 }
@@ -121,11 +127,11 @@ interface AuthContextType {
   trips: Trip[]
   addTrip: (trip: Omit<Trip, "id" | "createdAt" | "status">) => void
   updateTrip: (tripId: string, updates: Partial<Omit<Trip, "id" | "createdAt">>) => void
-  addParticipant: (tripId: string, participant: Omit<Participant, "id">) => void
-  getParticipants: (tripId: string) => Participant[]
-  getTrip: (tripId: string) => TripWithParticipants | null
-  deleteParticipant: (tripId: string, participantId: string) => void
-  updateParticipant: (tripId: string, participantId: string, updates: Partial<Participant>) => void
+  addTripPlayer: (tripId: string, playerId: string, teamId?: string) => void
+  getTripPlayers: (tripId: string) => TripPlayer[]
+  getTrip: (tripId: string) => TripWithPlayers | null
+  removeTripPlayer: (tripPlayerId: string) => void
+  updateTripPlayer: (tripPlayerId: string, updates: Partial<Omit<TripPlayer, "id">>) => void
   addRound: (tripId: string, round: Omit<Round, "id" | "tripId" | "createdAt">) => void
   getRounds: (tripId: string) => Round[]
   deleteRound: (roundId: string) => void
@@ -148,12 +154,11 @@ interface AuthContextType {
   addExpense: (tripId: string, expense: Omit<Expense, "id" | "tripId" | "createdAt">) => void
   getExpenses: (tripId: string) => Expense[]
   deleteExpense: (expenseId: string) => void
-  updateExpense: (expenseId: string, updates: Partial<Omit<Expense, "id" | "tripId" | "createdAt">>) => void // Added update function
-  participants: Participant[] // Export participants for easier access
-  foursomes: Foursome[] // Export foursomes
-  rounds: Round[] // Export rounds
-  teams: Team[] // Export teams
-  tripParticipants: Record<string, Participant[]>
+  updateExpense: (expenseId: string, updates: Partial<Omit<Expense, "id" | "tripId" | "createdAt">>) => void
+  tripPlayers: Record<string, TripPlayer[]>
+  foursomes: Foursome[]
+  rounds: Round[]
+  teams: Team[]
   tripRounds: Record<string, Round[]>
   matchScores: Record<string, MatchScore>
   roundMatches: Record<string, Match[]>
@@ -166,7 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [trips, setTrips] = useState<Trip[]>([])
-  const [tripParticipants, setTripParticipants] = useState<Record<string, Participant[]>>({})
+  const [tripPlayers, setTripPlayers] = useState<Record<string, TripPlayer[]>>({})
   const [tripRounds, setTripRounds] = useState<Record<string, Round[]>>({})
   const [tripTeams, setTripTeams] = useState<Record<string, Team[]>>({})
   const [roundFoursomes, setRoundFoursomes] = useState<Record<string, Foursome[]>>({})
@@ -195,13 +200,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const storedParticipants = localStorage.getItem("tripParticipants")
-    if (storedParticipants) {
+    const storedTripPlayers = localStorage.getItem("tripPlayers")
+    if (storedTripPlayers) {
       try {
-        setTripParticipants(JSON.parse(storedParticipants))
+        setTripPlayers(JSON.parse(storedTripPlayers))
       } catch (error) {
-        console.error("[v0] Failed to parse stored participants:", error)
-        localStorage.removeItem("tripParticipants")
+        console.error("[v0] Failed to parse stored trip players:", error)
+        localStorage.removeItem("tripPlayers")
       }
     }
 
@@ -265,57 +270,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    const storedToken = localStorage.getItem("auth_token")
-    if (storedToken && !user) {
-      const verifiedUser = verifyToken(storedToken)
-      if (verifiedUser) {
-        const storedUser = localStorage.getItem("user")
-        if (storedUser) {
-          try {
-            setUser(JSON.parse(storedUser))
-          } catch (e) {
-            logout()
-          }
-        }
-      } else {
-        logout()
-      }
-    }
-
     setIsLoading(false)
   }, [])
 
   const login = async (email: string, password: string) => {
     setIsLoading(true)
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      })
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Login failed")
+      if (email === "demo@golftrip.com" && password === "password") {
+        const userData: User = {
+          id: "1",
+          email: email,
+          name: "Demo User",
+        }
+        setUser(userData)
+        localStorage.setItem("user", JSON.stringify(userData))
+        localStorage.setItem("auth_token", "demo_token_" + Date.now())
+      } else {
+        throw new Error("Invalid credentials")
       }
-
-      const { user: userData, token } = await response.json()
-
-      setUser(userData)
-      localStorage.setItem("user", JSON.stringify(userData))
-      localStorage.setItem("auth_token", token)
-      document.cookie = `auth_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}`
-    } catch (err) {
-      console.log("[v0] API call failed, using demo mode:", err)
-      const demoUser = {
-        id: "demo-user-" + Date.now(),
-        email: email || "demo@golftrip.com",
-        name: email?.split("@")[0] || "Demo User",
-      }
-      setUser(demoUser)
-      localStorage.setItem("user", JSON.stringify(demoUser))
-      localStorage.setItem("auth_token", "demo-token-" + Date.now())
-      document.cookie = `auth_token=demo-token; path=/; max-age=${7 * 24 * 60 * 60}`
     } finally {
       setIsLoading(false)
     }
@@ -324,34 +298,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = async (name: string, email: string, password: string) => {
     setIsLoading(true)
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
-      })
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || "Signup failed")
+      const userData: User = {
+        id: Math.random().toString(36).substr(2, 9),
+        email: email,
+        name: name,
       }
-
-      const { user: userData, token } = await response.json()
-
       setUser(userData)
       localStorage.setItem("user", JSON.stringify(userData))
-      localStorage.setItem("auth_token", token)
-      document.cookie = `auth_token=${token}; path=/; max-age=${7 * 24 * 60 * 60}`
-    } catch (err) {
-      console.log("[v0] API call failed, using demo mode:", err)
-      const demoUser = {
-        id: "demo-user-" + Date.now(),
-        email,
-        name,
-      }
-      setUser(demoUser)
-      localStorage.setItem("user", JSON.stringify(demoUser))
-      localStorage.setItem("auth_token", "demo-token-" + Date.now())
-      document.cookie = `auth_token=demo-token; path=/; max-age=${7 * 24 * 60 * 60}`
+      localStorage.setItem("auth_token", "demo_token_" + Date.now())
     } finally {
       setIsLoading(false)
     }
@@ -361,7 +317,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     localStorage.removeItem("user")
     localStorage.removeItem("auth_token")
-    document.cookie = "auth_token=; path=/; max-age=0"
   }
 
   const addTrip = (tripData: Omit<Trip, "id" | "createdAt" | "status">) => {
@@ -375,6 +330,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const updatedTrips = [...trips, newTrip]
     setTrips(updatedTrips)
     localStorage.setItem("trips", JSON.stringify(updatedTrips))
+
+    const team1: Team = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: "Team A",
+      tripId: newTrip.id,
+      color: "#3b82f6",
+      members: [],
+      createdAt: new Date().toISOString(),
+    }
+
+    const team2: Team = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: "Team B",
+      tripId: newTrip.id,
+      color: "#ef4444",
+      members: [],
+      createdAt: new Date().toISOString(),
+    }
+
+    const updatedTeams = {
+      ...tripTeams,
+      [newTrip.id]: [team1, team2],
+    }
+
+    setTripTeams(updatedTeams)
+    localStorage.setItem("tripTeams", JSON.stringify(updatedTeams))
   }
 
   const updateTrip = (tripId: string, updates: Partial<Omit<Trip, "id" | "createdAt">>) => {
@@ -383,66 +364,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("trips", JSON.stringify(updatedTrips))
   }
 
-  const addParticipant = (tripId: string, participant: Omit<Participant, "id">) => {
-    const newParticipant: Participant = {
-      ...participant,
+  const addTripPlayer = (tripId: string, playerId: string, teamId?: string) => {
+    const newTripPlayer: TripPlayer = {
       id: Math.random().toString(36).substr(2, 9),
+      playerId,
+      tripId,
+      team: teamId,
     }
 
-    const updatedParticipants = {
-      ...tripParticipants,
-      [tripId]: [...(tripParticipants[tripId] || []), newParticipant],
+    const updatedTripPlayers = {
+      ...tripPlayers,
+      [tripId]: [...(tripPlayers[tripId] || []), newTripPlayer],
     }
 
-    setTripParticipants(updatedParticipants)
-    localStorage.setItem("tripParticipants", JSON.stringify(updatedParticipants))
-
-    // Update participant count in trip
-    const updatedTrips = trips.map((trip) =>
-      trip.id === tripId ? { ...trip, participants: updatedParticipants[tripId].length } : trip,
-    )
-    setTrips(updatedTrips)
-    localStorage.setItem("trips", JSON.stringify(updatedTrips))
+    setTripPlayers(updatedTripPlayers)
+    localStorage.setItem("tripPlayers", JSON.stringify(updatedTripPlayers))
   }
 
-  const getParticipants = (tripId: string) => {
-    return tripParticipants[tripId] || []
+  const getTripPlayers = (tripId: string) => {
+    return tripPlayers[tripId] || []
   }
 
-  const getTrip = (tripId: string): TripWithParticipants | null => {
+  const getTrip = (tripId: string): TripWithPlayers | null => {
     const trip = trips.find((t) => t.id === tripId)
     if (!trip) return null
 
     return {
       ...trip,
-      participantsList: getParticipants(tripId),
+      playersList: getTripPlayers(tripId),
     }
   }
 
-  const deleteParticipant = (tripId: string, participantId: string) => {
-    const updatedParticipants = {
-      ...tripParticipants,
-      [tripId]: (tripParticipants[tripId] || []).filter((p) => p.id !== participantId),
+  const removeTripPlayer = (tripPlayerId: string) => {
+    const updatedTripPlayers = { ...tripPlayers }
+    for (const tripId in updatedTripPlayers) {
+      updatedTripPlayers[tripId] = updatedTripPlayers[tripId].filter((tp) => tp.id !== tripPlayerId)
     }
-
-    setTripParticipants(updatedParticipants)
-    localStorage.setItem("tripParticipants", JSON.stringify(updatedParticipants))
-
-    const updatedTrips = trips.map((trip) =>
-      trip.id === tripId ? { ...trip, participants: updatedParticipants[tripId].length } : trip,
-    )
-    setTrips(updatedTrips)
-    localStorage.setItem("trips", JSON.stringify(updatedTrips))
+    setTripPlayers(updatedTripPlayers)
+    localStorage.setItem("tripPlayers", JSON.stringify(updatedTripPlayers))
   }
 
-  const updateParticipant = (tripId: string, participantId: string, updates: Partial<Participant>) => {
-    const updatedParticipants = {
-      ...tripParticipants,
-      [tripId]: (tripParticipants[tripId] || []).map((p) => (p.id === participantId ? { ...p, ...updates } : p)),
+  const updateTripPlayer = (tripPlayerId: string, updates: Partial<Omit<TripPlayer, "id">>) => {
+    const updatedTripPlayers = { ...tripPlayers }
+    for (const tripId in updatedTripPlayers) {
+      updatedTripPlayers[tripId] = updatedTripPlayers[tripId].map((tp) =>
+        tp.id === tripPlayerId ? { ...tp, ...updates } : tp,
+      )
     }
-
-    setTripParticipants(updatedParticipants)
-    localStorage.setItem("tripParticipants", JSON.stringify(updatedParticipants))
+    setTripPlayers(updatedTripPlayers)
+    localStorage.setItem("tripPlayers", JSON.stringify(updatedTripPlayers))
   }
 
   const addRound = (tripId: string, roundData: Omit<Round, "id" | "tripId" | "createdAt">) => {
@@ -558,7 +528,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRoundFoursomes(updatedFoursomes)
     localStorage.setItem("roundFoursomes", JSON.stringify(updatedFoursomes))
 
-    // Also delete associated matches
     const updatedMatches = { ...roundMatches }
     for (const roundId in updatedMatches) {
       updatedMatches[roundId] = updatedMatches[roundId].filter((m) => m.foursomeId !== foursomeId)
@@ -653,30 +622,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const updatedHoles = matchScore.holes.map((h) => (h.hole === hole ? { ...h, ...scoreData } : h))
 
-    const completedHoles = updatedHoles.filter(
-      (h) => h.player1Gross !== undefined || h.player2Gross !== undefined,
-    ).length
-
-    const updatedMatchScore: MatchScore = {
-      ...matchScore,
-      holes: updatedHoles,
-      completedHoles,
-      updatedAt: new Date().toISOString(),
-    }
-
     const updatedMatchScores = {
       ...matchScores,
-      [matchId]: updatedMatchScore,
+      [matchId]: {
+        ...matchScore,
+        holes: updatedHoles,
+        updatedAt: new Date().toISOString(),
+      },
     }
 
     setMatchScores(updatedMatchScores)
     localStorage.setItem("matchScores", JSON.stringify(updatedMatchScores))
-
-    if (completedHoles > 0 && completedHoles < 18) {
-      updateMatchStatus(matchId, "in-progress")
-    } else if (completedHoles === 18) {
-      updateMatchStatus(matchId, "completed")
-    }
   }
 
   const addExpense = (tripId: string, expenseData: Omit<Expense, "id" | "tripId" | "createdAt">) => {
@@ -720,76 +676,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("tripExpenses", JSON.stringify(updatedExpenses))
   }
 
-  const participants = Object.values(tripParticipants).flat()
-  const foursomes = Object.values(roundFoursomes).flat()
-  const rounds = Object.values(tripRounds).flat()
-  const teams = Object.values(tripTeams).flat()
+  const value: AuthContextType = {
+    user,
+    isLoading,
+    login,
+    signup,
+    logout,
+    isAuthenticated: !!user,
+    trips,
+    addTrip,
+    updateTrip,
+    addTripPlayer,
+    getTripPlayers,
+    getTrip,
+    removeTripPlayer,
+    updateTripPlayer,
+    addRound,
+    getRounds,
+    deleteRound,
+    addTeam,
+    getTeams,
+    deleteTeam,
+    addTeamMember,
+    removeTeamMember,
+    addFoursome,
+    getFoursomes,
+    deleteFoursome,
+    updateFoursome,
+    addMatch,
+    getMatches,
+    getMatchesByFoursome,
+    deleteMatch,
+    addMatchScore,
+    getMatchScore,
+    updateHoleScore,
+    addExpense,
+    getExpenses,
+    deleteExpense,
+    updateExpense,
+    tripPlayers,
+    foursomes: Object.values(roundFoursomes).flat(),
+    rounds: Object.values(tripRounds).flat(),
+    teams: Object.values(tripTeams).flat(),
+    tripRounds,
+    matchScores,
+    roundMatches,
+    updateMatchStatus,
+  }
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        login,
-        signup,
-        logout,
-        isAuthenticated: !!user,
-        trips,
-        addTrip,
-        updateTrip,
-        addParticipant,
-        getParticipants,
-        getTrip,
-        deleteParticipant,
-        updateParticipant,
-        addRound,
-        getRounds,
-        deleteRound,
-        addTeam,
-        getTeams,
-        deleteTeam,
-        addTeamMember,
-        removeTeamMember,
-        addFoursome,
-        getFoursomes,
-        deleteFoursome,
-        updateFoursome,
-        addMatch,
-        getMatches,
-        getMatchesByFoursome,
-        deleteMatch,
-        addMatchScore,
-        getMatchScore,
-        updateHoleScore,
-        addExpense,
-        getExpenses,
-        deleteExpense,
-        updateExpense,
-        participants,
-        foursomes,
-        rounds,
-        teams,
-        tripParticipants,
-        tripRounds,
-        matchScores,
-        roundMatches,
-        updateMatchStatus,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error("useAuth must be used within AuthProvider")
+    throw new Error("useAuth must be used within an AuthProvider")
   }
   return context
-}
-
-function verifyToken(token: string): User | null {
-  // Placeholder for token verification logic
-  return null
 }

@@ -3,9 +3,10 @@
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, MapPin, Users, Calendar } from "lucide-react"
+import { Plus, MapPin, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
+import { getVenue } from "@/lib/venue-storage"
 
 function getStatusColor(status: string) {
   const colors = {
@@ -17,11 +18,11 @@ function getStatusColor(status: string) {
 }
 
 export default function TripsPage() {
-  const { trips, tripParticipants, tripRounds, matchScores, roundMatches } = useAuth()
+  const { trips, tripRounds, matchScores, roundMatches } = useAuth()
 
   const tripsWithData = trips.map((trip) => {
-    const participants = tripParticipants[trip.id] || []
     const rounds = tripRounds[trip.id] || []
+    const venue = getVenue(trip.venueId)
 
     // Calculate completed rounds based on match scores
     let completedRounds = 0
@@ -41,9 +42,8 @@ export default function TripsPage() {
     return {
       id: trip.id,
       name: trip.name,
-      location: trip.location,
+      location: venue?.name || "Unknown Venue",
       status: trip.status,
-      participants: participants.length,
       rounds: rounds.length,
       startDate: new Date(trip.startDate).toLocaleDateString("en-US", {
         year: "numeric",
@@ -138,10 +138,10 @@ export default function TripsPage() {
                       <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
                         <div>
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            Participants
+                            <Calendar className="w-3 h-3" />
+                            Rounds
                           </p>
-                          <p className="text-sm font-semibold text-foreground">{trip.participants}</p>
+                          <p className="text-sm font-semibold text-foreground">{trip.rounds}</p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground flex items-center gap-1">

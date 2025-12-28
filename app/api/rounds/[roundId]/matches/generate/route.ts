@@ -3,9 +3,11 @@ import { withAuth, type AuthenticatedRequest } from "@/lib/auth-middleware"
 import { prisma } from "@/lib/prisma"
 
 // Handicap calculation helper
-function calculateMatchHandicaps(participants: Array<{ handicapIndex: number }>) {
-  const lowestHandicap = Math.min(...participants.map((p) => Number(p.handicapIndex)))
-  return participants.map((p) => Math.round(Number(p.handicapIndex) - lowestHandicap))
+function calculateMatchHandicaps(participants: Array<{ handicapIndex: any }>) {
+  // Convert Decimal to number
+  const handicaps = participants.map((p) => Number(p.handicapIndex))
+  const lowestHandicap = Math.min(...handicaps)
+  return handicaps.map((handicap) => Math.round(handicap - lowestHandicap))
 }
 
 async function postHandler(req: AuthenticatedRequest, { params }: { params: Promise<{ roundId: string }> }) {
@@ -96,46 +98,58 @@ async function postHandler(req: AuthenticatedRequest, { params }: { params: Prom
         })
 
         createdMatches.push(match)
-      } else {
-        // Create 2 matches: 1v1
-        const team1Player = players.find((p) => p.teamId === players[0].teamId)
-        const team2Player = players.find((p) => p.teamId !== players[0].teamId)
+      } else if (round.format === "ONE_V_ONE") {
+        // Create 2 matches: 1v1 (one for each pairing)
+        const team1Players = players.filter((p) => p.teamId === players[0].teamId)
+        const team2Players = players.filter((p) => p.teamId !== players[0].teamId)
 
-        if (!team1Player || !team2Player) {
-          return NextResponse.json({ error: "1v1 format requires 1 player from each team per match" }, { status: 400 })
+        if (team1Players.length !== 2 || team2Players.length !== 2) {
+          return NextResponse.json({ error: "1v1 format requires 2 players from each team" }, { status: 400 })
         }
 
-        const matchPlayers = [team1Player, team2Player]
-        const matchHandicaps = calculateMatchHandicaps(matchPlayers)
+        // Create two 1v1 matches
+        for (let i = 0; i < 2; i++) {
+          const team1Player = team1Players[i]
+          const team2Player = team2Players[i]
 
-        const match = await prisma.match.create({
-          data: {
-            roundId,
-            foursomeId: foursome.id,
-            matchNumber: 1,
-            format: "ONE_V_ONE",
-            scorerId: matchPlayers[0].id,
-            status: "PLANNED",
-            participants: {
-              create: matchPlayers.map((player, index) => ({
-                participantId: player.id,
-                teamId: player.teamId,
-                matchHandicap: matchHandicaps[index],
-                position: index + 1,
-              })),
-            },
-          },
-          include: {
-            participants: {
-              include: {
-                participant: true,
-                team: true,
+          if (!team1Player || !team2Player) {
+            return NextResponse.json({ error: "Could not pair players for 1v1 matches" }, { status: 400 })
+          }
+
+          const matchPlayers = [team1Player, team2Player]
+          const matchHandicaps = calculateMatchHandicaps(matchPlayers)
+
+          const match = await prisma.match.create({
+            data: {
+              roundId,
+              foursomeId: foursome.id,
+              matchNumber: i + 1, // Match 1 and Match 2
+              format: "ONE_V_ONE",
+              scorerId: matchPlayers[0].id,
+              status: "PLANNED",
+              participants: {
+                create: matchPlayers.map((player, index) => ({
+                  participantId: player.id,
+                  teamId: player.teamId,
+                  matchHandicap: matchHandicaps[index],
+                  position: index + 1,
+                })),
               },
             },
-          },
-        })
+            include: {
+              participants: {
+                include: {
+                  participant: true,
+                  team: true,
+                },
+              },
+            },
+          })
 
-        createdMatches.push(match)
+          createdMatches.push(match)
+        }
+      } else {
+        return NextResponse.json({ error: "Invalid round format" }, { status: 400 })
       }
     }
 

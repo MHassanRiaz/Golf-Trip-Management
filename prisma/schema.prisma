@@ -20,9 +20,42 @@ model User {
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
   trips          Trip[]
-  participants   Participant[]
+  players        Player[]
+  participants   Participant[] // added missing opposite relation
 
   @@map("users")
+}
+
+model Player {
+  id             String        @id @default(uuid())
+  userId         String        @map("user_id")
+  name           String
+  ghinNumber     String?       @map("ghin_number")
+  handicapIndex  Decimal       @map("handicap_index") @db.Decimal(4, 1)
+  email          String?
+  phone          String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tripPlayers    TripPlayer[]
+
+  @@map("players")
+}
+
+model TripPlayer {
+  id        String   @id @default(uuid())
+  tripId    String   @map("trip_id")
+  playerId  String   @map("player_id")
+  teamId    String?  @map("team_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  team      Team?    @relation(fields: [teamId], references: [id])
+
+  @@unique([tripId, playerId])
+  @@map("trip_players")
 }
 
 model Trip {
@@ -38,9 +71,10 @@ model Trip {
 
   organizer    User          @relation(fields: [organizerId], references: [id], onDelete: Cascade)
   teams        Team[]
-  participants Participant[]
+  tripPlayers  TripPlayer[]
   rounds       Round[]
   expenses     Expense[]
+  participants Participant[] // added missing opposite relation
 
   @@map("trips")
 }
@@ -53,9 +87,10 @@ model Team {
   createdAt DateTime @default(now()) @map("created_at")
 
   trip              Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  participants      Participant[]
+  tripPlayers       TripPlayer[]
   matchParticipants MatchParticipant[]
   wonMatches        Match[]           @relation("WinnerTeam")
+  participants      Participant[]     // added missing opposite relation
 
   @@map("teams")
 }
