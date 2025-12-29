@@ -13,7 +13,7 @@ const navItems = [
   { href: "/trips", icon: Trophy, label: "Trips" },
   { href: "/players", icon: Users, label: "Players" },
   { href: "/venues", icon: MapPin, label: "Venues" },
-  // { href: "/scoring", icon: Users, label: "Scoring" },
+  { href: "/scoring", icon: Users, label: "Scoring" },
   { href: "/expenses", icon: DollarSign, label: "Expenses" },
 ]
 
@@ -121,3 +121,5 @@ export function Navigation() {
     </nav>
   )
 }
+
+export default Navigation
