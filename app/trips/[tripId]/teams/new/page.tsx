@@ -1,82 +1,95 @@
 "use client"
 
-import type React from "react"
-
 import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { ArrowLeft, MapPin, Calendar, Users, FileText } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 
-const teamColors = [
-  { name: "Red", value: "bg-red-500" },
-  { name: "Blue", value: "bg-blue-500" },
-  { name: "Green", value: "bg-green-500" },
-  { name: "Yellow", value: "bg-yellow-500" },
-  { name: "Purple", value: "bg-purple-500" },
-  { name: "Orange", value: "bg-orange-500" },
-]
-
-export default function NewTeamPage() {
-  const params = useParams()
+export default function NewTripPage() {
   const router = useRouter()
-  const tripId = params.tripId as string
-  const { addTeam, getParticipants, getTeams } = useAuth()
-
-  const participants = getParticipants(tripId)
-  const existingTeams = getTeams(tripId)
+  const { isAuthenticated, addTrip } = useAuth()
 
   const [formData, setFormData] = useState({
     name: "",
-    color: "bg-blue-500",
-    members: [] as string[],
+    location: "",
+    startDate: "",
+    endDate: "",
+    description: "",
   })
 
   const [error, setError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }))
+    setError("")
   }
 
-  const handleColorChange = (color: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      color,
-    }))
-  }
-
-  const toggleMember = (memberId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      members: prev.members.includes(memberId)
-        ? prev.members.filter((id) => id !== memberId)
-        : [...prev.members, memberId],
-    }))
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
 
+    // Basic validation
     if (!formData.name.trim()) {
-      setError("Please enter a team name")
+      setError("Trip name is required")
       return
     }
 
-    addTeam(tripId, {
-      name: formData.name,
-      color: formData.color,
-      members: formData.members,
-    })
+    if (!formData.location.trim()) {
+      setError("Location is required")
+      return
+    }
 
-    router.push(`/trips/${tripId}?tab=teams`)
+    if (!formData.startDate || !formData.endDate) {
+      setError("Start and end dates are required")
+      return
+    }
+
+    const startDate = new Date(formData.startDate)
+    const endDate = new Date(formData.endDate)
+
+    if (startDate > endDate) {
+      setError("Start date must be before end date")
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      // Add trip using auth context
+      addTrip({
+        name: formData.name.trim(),
+        venueId: formData.location.trim(),
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        description: formData.description.trim(),
+        // participants: 0, // Will be updated when players are added
+      })
+
+      // Redirect to trips page
+      router.push("/trips")
+    } catch (err) {
+      setError("Failed to create trip")
+      console.error("[v0] Error:", err)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (!isAuthenticated) {
+    router.push("/login")
+    return null
   }
 
   return (
@@ -84,98 +97,142 @@ export default function NewTeamPage() {
       <Navigation />
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link
-          href={`/trips/${tripId}`}
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Trip
-        </Link>
+        {/* Header */}
+        <div className="mb-8">
+          <Link
+            href="/trips"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Trips
+          </Link>
+          <h1 className="text-3xl font-bold text-foreground">Create New Trip</h1>
+        </div>
 
-        <Card className="border-border/50">
-          <CardHeader>
-            <CardTitle>Create New Team</CardTitle>
-            <CardDescription>
-              Add a new team for this trip. You currently have {existingTeams.length} team
-              {existingTeams.length !== 1 ? "s" : ""}.
-            </CardDescription>
+        <Card className="border-border/50 shadow-lg">
+          <CardHeader className="border-b border-border/50 bg-gradient-to-br from-muted/30 to-transparent">
+            <CardTitle className="text-xl">Trip Details</CardTitle>
+            <CardDescription>Create a new golf trip for your group</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Trip Name */}
+              <div>
+                <Label htmlFor="name" className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  Trip Name *
+                </Label>
+                <Input
+                  type="text"
+                  id="name"
+                  name="name"
+                  placeholder="Annual Golf Trip 2024"
+                  value={formData.name}
+                  onChange={handleChange}
+                  className="w-full h-11 border-2 focus:border-primary transition-colors"
+                  disabled={isSubmitting}
+                  required
+                />
+              </div>
+
+              {/* Location */}
+              <div>
+                <Label htmlFor="location" className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  Location *
+                </Label>
+                <Input
+                  type="text"
+                  id="location"
+                  name="location"
+                  placeholder="Myrtle Beach, SC"
+                  value={formData.location}
+                  onChange={handleChange}
+                  className="w-full h-11 border-2 focus:border-primary transition-colors"
+                  disabled={isSubmitting}
+                  required
+                />
+              </div>
+
+              {/* Dates */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="startDate" className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+                    <Calendar className="w-4 h-4 text-primary" />
+                    Start Date *
+                  </Label>
+                  <Input
+                    type="date"
+                    id="startDate"
+                    name="startDate"
+                    value={formData.startDate}
+                    onChange={handleChange}
+                    className="w-full h-11 border-2 focus:border-primary transition-colors"
+                    disabled={isSubmitting}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="endDate" className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+                    <Calendar className="w-4 h-4 text-primary" />
+                    End Date *
+                  </Label>
+                  <Input
+                    type="date"
+                    id="endDate"
+                    name="endDate"
+                    value={formData.endDate}
+                    onChange={handleChange}
+                    className="w-full h-11 border-2 focus:border-primary transition-colors"
+                    disabled={isSubmitting}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <Label htmlFor="description" className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+                  <FileText className="w-4 h-4 text-primary" />
+                  Description <span className="text-muted-foreground font-normal ml-1">(Optional)</span>
+                </Label>
+                <Textarea
+                  id="description"
+                  name="description"
+                  placeholder="Annual golf trip with the buddies..."
+                  value={formData.description}
+                  onChange={handleChange}
+                  className="w-full min-h-[100px] border-2 focus:border-primary transition-colors resize-none"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              {/* Error Message */}
               {error && (
-                <div className="p-3 bg-destructive/10 border border-destructive/50 rounded text-sm text-destructive">
+                <div className="p-4 rounded-lg bg-destructive/10 border-2 border-destructive/30 text-destructive text-sm font-medium">
                   {error}
                 </div>
               )}
 
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Team Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="e.g., Team A, The Eagles"
-                  value={formData.name}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 rounded-lg border border-border bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-3">Team Color</label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                  {teamColors.map((color) => (
-                    <button
-                      key={color.value}
-                      type="button"
-                      onClick={() => handleColorChange(color.value)}
-                      className={`w-10 h-10 rounded-lg ${color.value} transition ${
-                        formData.color === color.value ? "ring-2 ring-offset-2 ring-foreground" : ""
-                      }`}
-                      title={color.name}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-3">Team Members</label>
-                {participants.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No participants yet. Add participants first.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {participants.map((participant) => (
-                      <label
-                        key={participant.id}
-                        className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formData.members.includes(participant.id)}
-                          onChange={() => toggleMember(participant.id)}
-                          className="w-4 h-4 rounded accent-primary"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium text-foreground">{participant.name}</p>
-                          <p className="text-xs text-muted-foreground">Handicap: {participant.handicap}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
+              {/* Buttons */}
               <div className="flex gap-3 pt-4">
-                <Link href={`/trips/${tripId}`} className="flex-1">
-                  <Button variant="outline" className="w-full bg-transparent">
+                <Link href="/trips" className="flex-1">
+                  <Button
+                    variant="outline"
+                    className="w-full h-11 border-2 hover:bg-muted bg-transparent"
+                    type="button"
+                    disabled={isSubmitting}
+                  >
                     Cancel
                   </Button>
                 </Link>
-                <button
+                <Button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium transition"
+                  className="flex-1 h-11 bg-primary hover:bg-primary/90 font-semibold shadow-sm"
+                  disabled={isSubmitting}
                 >
-                  Create Team
-                </button>
+                  {isSubmitting ? "Creating..." : "Create Trip"}
+                </Button>
               </div>
             </form>
           </CardContent>

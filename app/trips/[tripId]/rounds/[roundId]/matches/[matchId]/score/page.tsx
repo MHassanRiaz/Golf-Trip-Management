@@ -4,7 +4,7 @@ import { Navigation } from "@/components/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ArrowLeft, Save, Beer } from "lucide-react"
+import { ArrowLeft, Save, Beer, Lock, CheckCircle2 } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { useParams, useRouter } from "next/navigation"
@@ -16,10 +16,8 @@ import {
   calculateMatchPlayScore,
   calculateBestBallScore,
 } from "@/lib/handicap-engine"
-
-const TOTAL_HOLES = 5
-const AUTO_SAVE_INTERVAL = 5000 // Auto-save every 5 seconds
-let autoSaveInProgress = false
+import { getVenueById, type Venue, type Hole } from "@/lib/venue-storage"
+import { getPlayers } from "@/lib/player-storage"
 
 export default function MatchScoringPage() {
   const params = useParams()
@@ -35,27 +33,178 @@ export default function MatchScoringPage() {
   const matches = getMatches(roundId)
   const match = matches.find((m) => m.id === matchId)
 
+  const [venue, setVenue] = useState<Venue | null>(null)
+  const [venueHoles, setVenueHoles] = useState<Hole[]>([])
   const [selectedHole, setSelectedHole] = useState(1)
   const [isSaving, setIsSaving] = useState(false)
   const [existingScore, setExistingScore] = useState<any | null>(null)
-  const [lastSaveTime, setLastSaveTime] = useState<string>("Not saved yet")
-  const [initialHoleLoaded, setInitialHoleLoaded] = useState(false)
+  const [allMatchPlayers, setAllMatchPlayers] = useState<Array<{ id: string; name: string; handicap: number }>>([])
 
-  const team1Players = match?.team1Players
-    .map((id) => trip?.participantsList.find((p) => p.id === id))
-    .filter(Boolean) as Array<{ id: string; name: string; handicap: number }>
+  useEffect(() => {
+    console.log("[v0] Score page loaded with:", { tripId, roundId, matchId })
+    console.log("[v0] Trip data:", trip)
+    console.log("[v0] Round data:", round)
+    console.log("[v0] All matches:", matches)
+    console.log("[v0] Current match:", match)
+  }, [tripId, roundId, matchId, trip, round, matches, match])
 
-  const team2Players = match?.team2Players
-    .map((id) => trip?.participantsList.find((p) => p.id === id))
-    .filter(Boolean) as Array<{ id: string; name: string; handicap: number }>
+  useEffect(() => {
+    if (trip?.venueId) {
+      const loadedVenue = getVenueById(trip.venueId)
+      if (loadedVenue) {
+        setVenue(loadedVenue)
+        setVenueHoles(loadedVenue.holes)
+        console.log("[v0] Venue loaded:", loadedVenue)
+        console.log("[v0] Venue holes:", loadedVenue.holes)
+      } else {
+        console.log("[v0] Venue not found for ID:", trip.venueId)
+      }
+    }
+  }, [trip?.venueId])
 
-  const allPlayers = [...team1Players, ...team2Players]
+  useEffect(() => {
+    const existingMatchScore = getMatchScore(matchId)
+    if (!existingMatchScore && venueHoles.length > 0) {
+      // Create initial match score structure
+      addMatchScore({
+        matchId,
+        holes: venueHoles.map((hole) => ({
+          hole: hole.number,
+          player1Gross: undefined,
+          player2Gross: undefined,
+          player3Gross: undefined,
+          player4Gross: undefined,
+          drinks: 0,
+        })),
+        completedHoles: 0,
+      })
+    }
+    setExistingScore(existingMatchScore)
+  }, [matchId, getMatchScore, addMatchScore, venueHoles])
+
+  useEffect(() => {
+    if (!trip || !match) {
+      console.log("[v0] Missing trip or match:", { trip: !!trip, match: !!match })
+      return
+    }
+
+    const allPlayers = getPlayers()
+    console.log("[v0] === PLAYER LOADING DEBUG ===")
+    console.log("[v0] All global players from localStorage:", allPlayers)
+    console.log("[v0] Trip playersList:", trip.playersList)
+    console.log("[v0] Match team1Players IDs:", match.team1Players)
+    console.log("[v0] Match team2Players IDs:", match.team2Players)
+
+    if (allPlayers.length === 0) {
+      console.error("[v0] ERROR: No players found in localStorage! Players must be created first.")
+    }
+    if (!trip.playersList || trip.playersList.length === 0) {
+      console.error("[v0] ERROR: No trip players found! Players must be added to the trip first.")
+    }
+    if (!match.team1Players || match.team1Players.length === 0) {
+      console.error("[v0] ERROR: Match has no team1Players! Match may not have been created properly.")
+    }
+
+    const team1Players = match.team1Players
+      .map((tripPlayerId) => {
+        console.log("[v0] Looking for tripPlayer with ID:", tripPlayerId)
+        const tripPlayer = trip.playersList.find((p) => p.id === tripPlayerId)
+        console.log("[v0] Found tripPlayer:", tripPlayer)
+
+        if (!tripPlayer) {
+          console.error(
+            "[v0] ERROR: TripPlayer not found for ID:",
+            tripPlayerId,
+            "Available trip player IDs:",
+            trip.playersList.map((p) => p.id),
+          )
+          return null
+        }
+
+        const player = allPlayers.find((p) => p.id === tripPlayer.playerId)
+        console.log("[v0] Found global player:", player)
+
+        if (!player) {
+          console.error(
+            "[v0] ERROR: Global player not found for playerId:",
+            tripPlayer.playerId,
+            "Available player IDs:",
+            allPlayers.map((p) => p.id),
+          )
+          return null
+        }
+
+        return { id: tripPlayer.id, name: player.name, handicap: player.handicapIndex }
+      })
+      .filter(Boolean) as Array<{ id: string; name: string; handicap: number }>
+
+    const team2Players = match.team2Players
+      .map((tripPlayerId) => {
+        const tripPlayer = trip.playersList.find((p) => p.id === tripPlayerId)
+        if (!tripPlayer) {
+          console.error("[v0] ERROR: TripPlayer not found for ID:", tripPlayerId)
+          return null
+        }
+        const player = allPlayers.find((p) => p.id === tripPlayer.playerId)
+        if (!player) {
+          console.error("[v0] ERROR: Global player not found for playerId:", tripPlayer.playerId)
+          return null
+        }
+        return { id: tripPlayer.id, name: player.name, handicap: player.handicapIndex }
+      })
+      .filter(Boolean) as Array<{ id: string; name: string; handicap: number }>
+
+    console.log("[v0] Final resolved team1Players:", team1Players)
+    console.log("[v0] Final resolved team2Players:", team2Players)
+
+    const combined = [...team1Players, ...team2Players]
+    console.log("[v0] All match players combined:", combined)
+    console.log("[v0] === END PLAYER LOADING DEBUG ===")
+    setAllMatchPlayers(combined)
+  }, [trip, match])
+
+  useEffect(() => {
+    if (selectedHole < 1) {
+      setSelectedHole(1)
+    }
+  }, [selectedHole])
+
+  const totalHoles = venueHoles.length || 18
+
+  const isHoleComplete = (holeNumber: number): boolean => {
+    const holeData = existingScore?.holes.find((h: { hole: number }) => h.hole === holeNumber)
+    if (!holeData) return false
+
+    const playersToCheck = match?.format === "2v2" ? 4 : 2
+    const scores = [holeData.player1Gross, holeData.player2Gross, holeData.player3Gross, holeData.player4Gross].slice(
+      0,
+      playersToCheck,
+    )
+
+    return scores.every((score) => score !== undefined && score !== null)
+  }
+
+  const isHoleLocked = (holeNumber: number): boolean => {
+    if (holeNumber === 1) return false
+    return !isHoleComplete(holeNumber - 1)
+  }
+
+  if (!trip || !round || !match) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navigation />
+        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <p className="text-muted-foreground">Match not found</p>
+        </main>
+      </div>
+    )
+  }
 
   const matchScore = existingScore || {
     id: "",
     matchId,
-    holes: Array.from({ length: TOTAL_HOLES }, (_, i) => ({
-      hole: i + 1,
+    holes: venueHoles.map((hole) => ({
+      hole: hole.number,
       player1Gross: undefined,
       player2Gross: undefined,
       player3Gross: undefined,
@@ -67,28 +216,43 @@ export default function MatchScoringPage() {
     updatedAt: "",
   }
 
-  const holeAllocations = generateHoleStrokeAllocation(team1Players, team2Players, match?.format)
-  const currentHole = matchScore.holes.find((h) => h.hole === selectedHole)!
+  const venueStrokeIndices = venueHoles.map((h: Hole) => h.handicap)
 
-  const isCurrentHoleComplete = () => {
-    const numPlayers = match?.format === "2v2" ? 4 : 2
-    const scores = [
-      currentHole.player1Gross,
-      currentHole.player2Gross,
-      currentHole.player3Gross,
-      currentHole.player4Gross,
-    ].slice(0, numPlayers)
+  const team1Players = allMatchPlayers.slice(0, match.format === "2v2" ? 2 : 1)
+  const team2Players = allMatchPlayers.slice(match.format === "2v2" ? 2 : 1)
 
-    return scores.every((score) => score !== undefined)
+  const holeAllocations = generateHoleStrokeAllocation(
+    team1Players,
+    team2Players,
+    match.format,
+    venueStrokeIndices.length > 0 ? venueStrokeIndices : undefined,
+  )
+
+  const currentHole = matchScore.holes.find((h: { hole: number }) => h.hole === selectedHole)
+  const currentVenueHole = venueHoles.find((h) => h.number === selectedHole)
+
+  if (!currentHole) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-lg text-muted-foreground">Loading hole data...</p>
+        </div>
+      </div>
+    )
   }
 
-  const canSelectHole = (hole: number) => {
-    if (hole === 1) return true
-    return matchScore.holes.slice(0, hole - 1).every((h) => {
-      const numPlayers = match?.format === "2v2" ? 4 : 2
-      const scores = [h.player1Gross, h.player2Gross, h.player3Gross, h.player4Gross].slice(0, numPlayers)
-      return scores.every((score) => score !== undefined)
+  const handleScoreChange = (playerIndex: number, value: string) => {
+    const score = value === "" ? undefined : Number.parseInt(value, 10)
+    const field = `player${playerIndex + 1}Gross` as keyof typeof currentHole
+
+    updateHoleScore(matchId, selectedHole, {
+      [field]: score,
     })
+  }
+
+  const handleDrinkChange = (value: string) => {
+    const drinks = value === "" ? 0 : Number.parseInt(value, 10)
+    updateHoleScore(matchId, selectedHole, { drinks })
   }
 
   const calculateHoleResults = () => {
@@ -97,7 +261,7 @@ export default function MatchScoringPage() {
     for (const holeData of matchScore.holes) {
       const allocation = holeAllocations.find((a) => a.hole === holeData.hole)!
 
-      if (match?.format === "2v2") {
+      if (match.format === "2v2") {
         const p1Gross = holeData.player1Gross || 0
         const p2Gross = holeData.player2Gross || 0
         const p3Gross = holeData.player3Gross || 0
@@ -142,21 +306,7 @@ export default function MatchScoringPage() {
   }
 
   const holeResults = calculateHoleResults()
-  const matchStatus = calculateMatchPlayScore(holeResults)
-
-  const handleScoreChange = (playerIndex: number, value: string) => {
-    const score = value === "" ? undefined : Number.parseInt(value, 10)
-    const field = `player${playerIndex + 1}Gross` as keyof typeof currentHole
-
-    updateHoleScore(matchId, selectedHole, {
-      [field]: score,
-    })
-  }
-
-  const handleDrinkChange = (value: string) => {
-    const drinks = value === "" ? 0 : Number.parseInt(value, 10)
-    updateHoleScore(matchId, selectedHole, { drinks })
-  }
+  const matchStatus = calculateMatchPlayScore(holeResults, totalHoles)
 
   const handleSave = () => {
     setIsSaving(true)
@@ -168,114 +318,7 @@ export default function MatchScoringPage() {
 
   const currentAllocation = holeAllocations.find((a) => a.hole === selectedHole)!
 
-  useEffect(() => {
-    setExistingScore(getMatchScore(matchId))
-  }, [matchId, getMatchScore])
-
-  useEffect(() => {
-    if (existingScore && !initialHoleLoaded) {
-      // Find the first hole that doesn't have all player scores
-      let nextIncompleteHole = 1
-      for (let i = 0; i < existingScore.holes.length; i++) {
-        const hole = existingScore.holes[i]
-        const numPlayers = match?.format === "2v2" ? 4 : 2
-        const scores = [hole.player1Gross, hole.player2Gross, hole.player3Gross, hole.player4Gross].slice(0, numPlayers)
-
-        const isComplete = scores.every((s) => s !== undefined)
-        if (!isComplete) {
-          nextIncompleteHole = i + 1
-          break
-        }
-      }
-
-      // If all holes complete, stay at last hole
-      if (nextIncompleteHole === existingScore.holes.length + 1) {
-        nextIncompleteHole = TOTAL_HOLES
-      }
-
-      console.log("[v0] Setting initial hole to:", nextIncompleteHole)
-      setSelectedHole(nextIncompleteHole)
-      setInitialHoleLoaded(true)
-    }
-  }, [existingScore, match?.format, initialHoleLoaded])
-
-  useEffect(() => {
-    const autoSaveTimer = setInterval(async () => {
-      if (existingScore && !autoSaveInProgress) {
-        autoSaveInProgress = true
-        try {
-          const response = await fetch(`/api/matches/${matchId}/scores`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              holes: existingScore.holes.map((hole) => ({
-                hole: hole.hole,
-                player1Gross: hole.player1Gross,
-                player2Gross: hole.player2Gross,
-                player3Gross: hole.player3Gross,
-                player4Gross: hole.player4Gross,
-                drinks: hole.drinks,
-              })),
-              completedHoles: existingScore.completedHoles,
-            }),
-          })
-
-          if (response.ok) {
-            const data = await response.json()
-            console.log("[v0] Auto-saved scores to backend:", data)
-            setLastSaveTime(new Date().toLocaleTimeString())
-          } else {
-            console.error("[v0] Backend save failed:", response.statusText)
-          }
-        } catch (error) {
-          console.error("[v0] Auto-save API error:", error)
-        } finally {
-          autoSaveInProgress = false
-        }
-      }
-    }, AUTO_SAVE_INTERVAL)
-
-    return () => clearInterval(autoSaveTimer)
-  }, [existingScore, matchId])
-
-  useEffect(() => {
-    if (!existingScore) {
-      const initialHoles = Array.from({ length: TOTAL_HOLES }, (_, i) => ({
-        hole: i + 1,
-        player1Gross: undefined,
-        player2Gross: undefined,
-        player3Gross: undefined,
-        player4Gross: undefined,
-        drinks: 0,
-      }))
-
-      addMatchScore({
-        matchId,
-        holes: initialHoles,
-        completedHoles: 0,
-      })
-    }
-  }, [matchId, existingScore, addMatchScore])
-
-  useEffect(() => {
-    if (isCurrentHoleComplete() && selectedHole < TOTAL_HOLES) {
-      const timer = setTimeout(() => {
-        setSelectedHole(selectedHole + 1)
-      }, 1000)
-      return () => clearTimeout(timer)
-    }
-  }, [selectedHole, matchScore.holes])
-
-  if (!trip || !round || !match) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Navigation />
-        <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <p className="text-muted-foreground">Match not found</p>
-        </main>
-      </div>
-    )
-  }
+  const currentHoleComplete = isHoleComplete(selectedHole)
 
   return (
     <div className="min-h-screen bg-background">
@@ -295,17 +338,21 @@ export default function MatchScoringPage() {
           <p className="text-muted-foreground">
             Round {round.number} - {round.course}
           </p>
-          <p className="text-sm text-muted-foreground">{match.format === "2v2" ? "2v2 Best Ball" : "1v1 Singles"}</p>
+          <p className="text-sm text-muted-foreground">
+            {match.format === "2v2" ? "2v2 Best Ball" : "1v1 Singles"} • {totalHoles} Holes
+            {venue && ` • ${venue.name}`}
+          </p>
         </div>
 
+        {/* Match Status */}
         <Card className="border-border/50 mb-6">
           <CardContent className="pt-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Match Status</p>
                 <p className="text-2xl font-bold text-primary">{matchStatus.currentStatus}</p>
               </div>
-              <div className="flex gap-4 sm:gap-6 text-right w-full sm:w-auto">
+              <div className="flex gap-6 text-right">
                 <div>
                   <p className="text-xs text-muted-foreground">Team 1</p>
                   <p className="text-xl font-bold text-foreground">{matchStatus.team1HolesWon}</p>
@@ -320,102 +367,113 @@ export default function MatchScoringPage() {
                 </div>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-4">Last auto-save: {lastSaveTime}</p>
           </CardContent>
         </Card>
 
+        {/* Hole Selector */}
         <Card className="border-border/50 mb-6">
           <CardHeader>
-            <CardTitle className="text-base sm:text-lg">Select Hole (Sequential Entry)</CardTitle>
-            <p className="text-xs sm:text-sm text-muted-foreground mt-2">
-              Complete all players on current hole to unlock next
-            </p>
+            <CardTitle className="text-lg">Select Hole</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-5 gap-1 sm:gap-2">
-              {Array.from({ length: TOTAL_HOLES }, (_, i) => i + 1).map((hole) => {
-                const holeData = matchScore.holes.find((h) => h.hole === hole)!
-                const numPlayers = match.format === "2v2" ? 4 : 2
-                const scores = [
-                  holeData.player1Gross,
-                  holeData.player2Gross,
-                  holeData.player3Gross,
-                  holeData.player4Gross,
-                ].slice(0, numPlayers)
-                const hasScore = scores.some((s) => s !== undefined)
-                const isComplete = scores.every((s) => s !== undefined)
-                const isSelectable = canSelectHole(hole)
+            <div className="grid grid-cols-6 md:grid-cols-9 gap-2">
+              {venueHoles.map((venueHole) => {
+                const holeNumber = venueHole.number
+                const complete = isHoleComplete(holeNumber)
+                const locked = isHoleLocked(holeNumber)
 
                 return (
                   <button
-                    key={hole}
-                    onClick={() => isSelectable && setSelectedHole(hole)}
-                    disabled={!isSelectable}
-                    className={`p-2 sm:p-3 rounded-lg border text-center transition text-xs sm:text-sm ${
-                      !isSelectable
-                        ? "border-border/30 bg-background text-muted-foreground/50 cursor-not-allowed opacity-50"
-                        : selectedHole === hole
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : isComplete
-                            ? "border-accent bg-accent/10 text-accent hover:border-accent/70"
-                            : hasScore
-                              ? "border-primary/40 bg-primary/5 text-primary"
-                              : "border-border hover:border-primary/50 text-foreground"
+                    key={holeNumber}
+                    onClick={() => !locked && setSelectedHole(holeNumber)}
+                    disabled={locked}
+                    className={`p-3 rounded-lg border text-center transition relative ${
+                      selectedHole === holeNumber
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : complete
+                          ? "border-green-500 bg-green-500/10 text-green-600 hover:border-green-600"
+                          : locked
+                            ? "border-border/30 bg-muted/30 text-muted-foreground cursor-not-allowed opacity-50"
+                            : "border-border hover:border-primary/50 text-foreground"
                     }`}
                   >
-                    <div className="font-semibold">{hole}</div>
-                    <div className="text-xs mt-0.5">{isComplete ? "✓" : hasScore ? "•" : "-"}</div>
+                    <div className="font-semibold">{holeNumber}</div>
+                    {complete && selectedHole !== holeNumber && (
+                      <CheckCircle2 className="w-3 h-3 absolute top-1 right-1 text-green-600" />
+                    )}
+                    {locked && <Lock className="w-3 h-3 absolute top-1 right-1" />}
                   </button>
                 )
               })}
             </div>
+            <p className="text-xs text-muted-foreground mt-3 flex items-center gap-2">
+              <Lock className="w-3 h-3" />
+              Complete all player scores in the current hole to unlock the next hole
+            </p>
           </CardContent>
         </Card>
 
+        {/* Score Entry */}
         <Card className="border-border/50">
           <CardHeader>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+            <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base sm:text-lg">Hole {selectedHole}</CardTitle>
-                <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-                  Stroke Index: {currentAllocation.strokeIndex}
+                <CardTitle className="text-lg flex items-center gap-2">
+                  Hole {selectedHole}
+                  {currentHoleComplete && <CheckCircle2 className="w-5 h-5 text-green-600" />}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {currentVenueHole && (
+                    <>
+                      Par {currentVenueHole.par} • Stroke Index: {currentAllocation.strokeIndex} •{" "}
+                      <span className="capitalize">{currentVenueHole.complexity}</span>
+                    </>
+                  )}
+                  {!currentVenueHole && <>Stroke Index: {currentAllocation.strokeIndex}</>}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 items-center">
+              <div className="flex items-center gap-2">
                 {currentAllocation.team1Strokes > 0 && (
-                  <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary font-medium whitespace-nowrap">
-                    Team 1: {currentAllocation.team1Strokes}
+                  <span className="text-xs px-2 py-1 rounded bg-primary/10 text-primary font-medium">
+                    Team 1: {currentAllocation.team1Strokes} stroke{currentAllocation.team1Strokes > 1 ? "s" : ""}
                   </span>
                 )}
                 {currentAllocation.team2Strokes > 0 && (
-                  <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent font-medium whitespace-nowrap">
-                    Team 2: {currentAllocation.team2Strokes}
+                  <span className="text-xs px-2 py-1 rounded bg-accent/10 text-accent font-medium">
+                    Team 2: {currentAllocation.team2Strokes} stroke{currentAllocation.team2Strokes > 1 ? "s" : ""}
                   </span>
                 )}
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3 sm:space-y-4">
-            <div className="space-y-2 sm:space-y-3">
-              {allPlayers.map((player, index) => {
+          <CardContent className="space-y-4">
+            {/* Player Scores */}
+            <div className="space-y-3">
+              {allMatchPlayers.length === 0 && (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground mb-2">Loading players...</p>
+                  <p className="text-xs text-muted-foreground">Check browser console for debug information</p>
+                </div>
+              )}
+              {allMatchPlayers.map((player, index) => {
                 const field = `player${index + 1}Gross` as keyof typeof currentHole
                 const grossScore = currentHole[field] as number | undefined
-                const strokesReceived = index < 2 ? currentAllocation.team1Strokes : currentAllocation.team2Strokes
+                const strokesReceived =
+                  index < (match.format === "2v2" ? 2 : 1)
+                    ? currentAllocation.team1Strokes
+                    : currentAllocation.team2Strokes
                 const netScore = grossScore ? calculateNetScore(grossScore, strokesReceived) : undefined
 
                 return (
-                  <div
-                    key={player.id}
-                    className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 p-3 rounded-lg border border-border"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-foreground truncate">{player.name}</p>
+                  <div key={player.id} className="flex items-center gap-4 p-3 rounded-lg border border-border">
+                    <div className="flex-1">
+                      <p className="font-medium text-foreground">{player.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        HCP: {player.handicap} • Team {index < 2 ? "1" : "2"}
+                        Handicap: {player.handicap} • Team {index < (match.format === "2v2" ? 2 : 1) ? "1" : "2"}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                      <div className="flex-1 sm:flex-none">
+                    <div className="flex items-center gap-3">
+                      <div>
                         <label className="text-xs text-muted-foreground block mb-1">Gross</label>
                         <Input
                           type="number"
@@ -423,70 +481,66 @@ export default function MatchScoringPage() {
                           max="15"
                           value={grossScore || ""}
                           onChange={(e) => handleScoreChange(index, e.target.value)}
-                          className="w-full sm:w-16 text-center bg-background text-sm"
+                          className="w-16 text-center bg-background"
                           placeholder="-"
                         />
                       </div>
-                      <div className="flex-1 sm:flex-none">
-                        <label className="text-xs text-muted-foreground block mb-1">Net</label>
-                        {netScore !== undefined ? (
-                          <div className="w-full sm:w-16 h-9 sm:h-10 rounded-lg border border-primary bg-primary/10 flex items-center justify-center font-bold text-primary text-sm">
+                      {netScore !== undefined && (
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">Net</label>
+                          <div className="w-16 h-10 rounded-lg border border-primary bg-primary/10 flex items-center justify-center font-bold text-primary">
                             {netScore}
                           </div>
-                        ) : (
-                          <div className="w-full sm:w-16 h-9 sm:h-10 rounded-lg border border-border/30 bg-muted/30 flex items-center justify-center text-muted-foreground text-sm">
-                            -
-                          </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
               })}
             </div>
 
+            {/* Drinks Counter */}
             {round.drinkingMode && (
-              <div className="p-3 rounded-lg border border-accent/30 bg-accent/5">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <Beer className="w-5 h-5 text-accent flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <label className="text-sm font-medium text-foreground block">Drinks</label>
-                    <p className="text-xs text-muted-foreground">Track drinking points</p>
+              <div className="p-4 rounded-lg border border-accent/30 bg-accent/5">
+                <div className="flex items-center gap-3">
+                  <Beer className="w-5 h-5 text-accent" />
+                  <div className="flex-1">
+                    <label className="text-sm font-medium text-foreground block">Drinks on this hole</label>
+                    <p className="text-xs text-muted-foreground">Track drinking points for this hole</p>
                   </div>
                   <Input
                     type="number"
                     min="0"
                     value={currentHole.drinks || 0}
                     onChange={(e) => handleDrinkChange(e.target.value)}
-                    className="w-16 text-center bg-background text-sm"
+                    className="w-20 text-center bg-background"
                   />
                 </div>
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-2 pt-4">
+            {/* Navigation */}
+            <div className="flex gap-3 pt-4">
               <Button
                 variant="outline"
                 onClick={() => setSelectedHole(Math.max(1, selectedHole - 1))}
                 disabled={selectedHole === 1}
                 className="flex-1 bg-transparent"
               >
-                Previous
+                Previous Hole
               </Button>
-              {!isCurrentHoleComplete() && (
-                <div className="flex-1 flex items-center justify-center p-2 rounded-lg border border-amber-200/50 bg-amber-50/30 text-xs">
-                  <p className="text-amber-900/70 font-medium">Complete all players</p>
-                </div>
-              )}
-              {isCurrentHoleComplete() && (
-                <Button
-                  onClick={() => setSelectedHole(Math.min(TOTAL_HOLES, selectedHole + 1))}
-                  disabled={selectedHole === TOTAL_HOLES}
-                  className="flex-1 bg-primary hover:bg-primary/90"
-                >
-                  {selectedHole === TOTAL_HOLES ? "All Complete" : "Next"}
-                </Button>
-              )}
+              <Button
+                onClick={() => {
+                  const nextHole = selectedHole + 1
+                  if (nextHole <= totalHoles && !isHoleLocked(nextHole)) {
+                    setSelectedHole(nextHole)
+                  }
+                }}
+                disabled={selectedHole === totalHoles || !currentHoleComplete}
+                className="flex-1 bg-primary hover:bg-primary/90"
+              >
+                {!currentHoleComplete ? "Complete All Scores" : "Next Hole"}
+              </Button>
             </div>
 
             <Button onClick={handleSave} disabled={isSaving} className="w-full gap-2 bg-accent hover:bg-accent/90">

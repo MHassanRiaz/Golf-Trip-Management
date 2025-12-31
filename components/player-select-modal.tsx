@@ -9,10 +9,8 @@ import { getPlayers } from "@/lib/player-storage"
 interface PlayerSelectModalProps {
   isOpen: boolean
   onClose: () => void
-  onSelect: (playerId: string, teamId: string) => void
+  onSelect: (playerId: string) => void
   teams: Array<{ id: string; name: string }>
-  selectedTeamId: string
-  onTeamChange: (teamId: string) => void
   excludedPlayerIds?: string[]
 }
 
@@ -21,8 +19,6 @@ export function PlayerSelectModal({
   onClose,
   onSelect,
   teams,
-  selectedTeamId,
-  onTeamChange,
   excludedPlayerIds = [],
 }: PlayerSelectModalProps) {
   const [searchQuery, setSearchQuery] = useState("")
@@ -61,6 +57,12 @@ export function PlayerSelectModal({
             />
           </div>
 
+          <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="text-xs text-muted-foreground">
+              ℹ️ Players will be automatically assigned to teams for balanced distribution
+            </p>
+          </div>
+
           {/* Players List */}
           <div className="border border-border/50 rounded-lg bg-muted/30 max-h-64 overflow-y-auto">
             {filteredPlayers.length === 0 ? (
@@ -72,9 +74,8 @@ export function PlayerSelectModal({
                 {filteredPlayers.map((player) => (
                   <button
                     key={player.id}
-                    onClick={() => onSelect(player.id, selectedTeamId)}
-                    disabled={!selectedTeamId}
-                    className="w-full p-4 hover:bg-primary/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+                    onClick={() => onSelect(player.id)}
+                    className="w-full p-4 hover:bg-primary/10 transition-colors text-left"
                   >
                     <div className="flex items-center justify-between">
                       <div>
@@ -97,29 +98,9 @@ export function PlayerSelectModal({
             )}
           </div>
 
-          {/* Team Selection */}
-          <div>
-            <label className="text-sm font-medium text-foreground block mb-2">Assign to Team</label>
-            <select
-              value={selectedTeamId}
-              onChange={(e) => onTeamChange(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Select a team...</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Actions */}
           <div className="flex gap-2 pt-2">
             <Button onClick={onClose} variant="outline" className="flex-1 bg-transparent">
-              Cancel
-            </Button>
-            <Button onClick={() => {}} disabled={!selectedTeamId} className="flex-1 bg-primary hover:bg-primary/90">
               Close
             </Button>
           </div>

@@ -141,7 +141,7 @@ export function determineHoleWinner(team1NetScore: number, team2NetScore: number
  * Calculates match score in match play format (holes up/down)
  * Returns: { team1HolesWon, team2HolesWon, tied }
  */
-export function calculateMatchPlayScore(holeResults: Array<{ winner: 0 | 1 | 2 }>): {
+export function calculateMatchPlayScore(holeResults: Array<{ winner: 0 | 1 | 2} >, totalHoles: number): {
   team1HolesWon: number
   team2HolesWon: number
   tied: number

@@ -21,13 +21,12 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
+import { getPlayers, getPlayer } from "@/lib/player-storage"
+import { calculateTeamStandings } from "@/lib/standings-calculator"
+import { PlayerSelectModal } from "@/components/player-select-modal" // Added PlayerSelectModal import
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { useState, useMemo } from "react"
-import { calculateTeamStandings } from "@/lib/standings-calculator"
 import { getVenue } from "@/lib/venue-storage"
-import { getPlayer, type Player } from "@/lib/player-storage" // Import Player type from player-storage instead of non-existent @/lib/types
-import type { Match, MatchScore } from "@/lib/types" // Imported Match and MatchScore types
-import { PlayerSelectModal } from "@/components/player-select-modal" // Added PlayerSelectModal import
 
 export default function TripDetailPage() {
   const params = useParams()
@@ -79,39 +78,44 @@ export default function TripDetailPage() {
 
   const standings = useMemo(() => {
     const roundsForTrip = rounds.filter((r) => r.tripId === tripId)
-    const allMatches: Match[] = []
+    const allMatches: any[] = []
 
     roundsForTrip.forEach((round) => {
-      const roundMatches = round.matches || []
+      const roundMatches = getMatches(round.id)
       allMatches.push(...roundMatches)
     })
 
-    const matchScores: Record<string, MatchScore> = {}
-    const holeAllocations: Record<string, Record<string, number[]>> = {}
-
+    const matchScores: Record<string, any> = {}
     allMatches.forEach((match) => {
-      matchScores[match.id] = {
-        team1_points: match.team1_points || 0,
-        team2_points: match.team2_points || 0,
+      const score = getMatchScore(match.id)
+      if (score) {
+        matchScores[match.id] = score
       }
-
-      const holeScores = match.holeScores || []
-      holeAllocations[match.id] = {}
-
-      holeScores.forEach((hs: any) => {
-        // Changed hs type to any based on update
-        if (!holeAllocations[match.id][hs.participant_id]) {
-          holeAllocations[match.id][hs.participant_id] = []
-        }
-        holeAllocations[match.id][hs.participant_id].push(hs.strokes_received || 0)
-      })
     })
 
-    const tripPlaysForTrip = getTripPlayers(tripId)
-    const playersList = tripPlaysForTrip.map((tp) => getPlayer(tp.playerId)).filter((p): p is Player => p !== null)
+    const holeAllocations: Record<string, any> = {}
+
+    const tripPlayersForTrip = getTripPlayers(tripId)
+    const allGlobalPlayers = getPlayers()
+    const playersList = tripPlayersForTrip
+      .map((tp) => {
+        const globalPlayer = allGlobalPlayers.find((p) => p.id === tp.playerId)
+        if (globalPlayer) {
+          return {
+            id: tp.id, // Use trip player ID
+            name: globalPlayer.name,
+            team: tp.team || "",
+            handicap: globalPlayer.handicapIndex,
+          }
+        }
+        return null
+      })
+      .filter((p): p is { id: string; name: string; team: string; handicap: number } => p !== null)
+
+    if (playersList.length === 0) return []
 
     return calculateTeamStandings(allMatches, matchScores, holeAllocations, playersList)
-  }, [rounds, tripPlayers, tripId, getTeams]) // Use getTeams calculation instead of trip?.teams
+  }, [rounds, tripId, getMatches, getMatchScore, getTripPlayers])
 
   if (!trip) {
     return (
@@ -141,10 +145,9 @@ export default function TripDetailPage() {
 
   // add handleAddPlayer function
   const handleAddPlayer = (playerId: string) => {
-    // const team = teams.length > 0 ? teams[0].name : "" // Removed this line, team assignment handled in UI
-    addTripPlayer(tripId, playerId, selectedTeamId) // Use selectedTeamId from state
+    addTripPlayer(tripId, playerId) // Team assignment is now automatic
     setSelectedPlayerId("")
-    setSelectedTeamId("")
+    setSelectedTeamId("") // Keep this for state cleanup even though not used
     setShowAddPlayer(false)
   }
 
@@ -201,7 +204,8 @@ export default function TripDetailPage() {
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">Participants</p>
+                  {/* CHANGE> Changed label from "Participants" to "Players" */}
+                  <p className="text-sm text-muted-foreground">Players</p>
                   {/* <p className="text-2xl font-bold text-foreground mt-1">{trip.participantsList.length}</p> */}
                   {/* Display number of trip players */}
                   <p className="text-2xl font-bold text-foreground mt-1">{tripPlayers.length}</p>
@@ -384,8 +388,6 @@ export default function TripDetailPage() {
                   }}
                   onSelect={handleAddPlayer}
                   teams={teams}
-                  selectedTeamId={selectedTeamId}
-                  onTeamChange={setSelectedTeamId}
                   excludedPlayerIds={tripPlayers.map((tp) => tp.playerId)}
                 />
 
@@ -395,7 +397,8 @@ export default function TripDetailPage() {
                     <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
                       <Users className="w-8 h-8 text-muted-foreground" />
                     </div>
-                    <p className="text-muted-foreground mb-4">No participants yet</p>
+                    {/* CHANGE> Changed label from "No participants yet" to "No players yet" */}
+                    <p className="text-muted-foreground mb-4">No players yet</p>
                     {/* <Link href={`/trips/${tripId}/participants/new`}>
                       <Button className="gap-2 bg-primary hover:bg-primary/90">
                         <Plus className="w-4 h-4" />
@@ -506,7 +509,7 @@ export default function TripDetailPage() {
                                     <Trash2 className="w-4 h-4" />
                                   </button> */}
                                   {/* update edit and delete icons to use player assignment */}
-                                  <button
+                                  {/* <button
                                     onClick={() => {
                                       setEditingPlayer(tripPlayer.id)
                                       setEditForm({
@@ -517,7 +520,7 @@ export default function TripDetailPage() {
                                     title="Edit player assignment"
                                   >
                                     <Edit className="w-4 h-4" />
-                                  </button>
+                                  </button> */}
                                   <button
                                     onClick={() => {
                                       setDeleteConfirm(tripPlayer.id)
@@ -703,17 +706,16 @@ export default function TripDetailPage() {
                           <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
                             <div className="flex items-center justify-between">
                               <div className="flex gap-4 text-sm text-muted-foreground">
-                                <span>Foursomes: {foursomeCount}</span>
+                                {/* CHANGE> Removed foursomes count display */}
                                 <span>Matches: {matchCount}</span>
                               </div>
-                              {foursomeCount > 0 && (
-                                <Link href={`/trips/${tripId}/rounds/${round.id}/matches/generate`}>
-                                  <Button variant="outline" size="sm" className="gap-2 bg-transparent">
-                                    <Zap className="w-3 h-3" />
-                                    Generate Matches
-                                  </Button>
-                                </Link>
-                              )}
+                              {/* CHANGE> Added Generate Matches button inside each round */}
+                              <Link href={`/trips/${tripId}/rounds/${round.id}/generate-matches`}>
+                                <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+                                  <Zap className="w-3 h-3" />
+                                  Generate Matches
+                                </Button>
+                              </Link>
                             </div>
 
                             {matches.length > 0 && (

@@ -365,11 +365,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const addTripPlayer = (tripId: string, playerId: string, teamId?: string) => {
+    let assignedTeamId = teamId
+
+    if (!assignedTeamId) {
+      const teams = getTeams(tripId)
+      const existingPlayers = getTripPlayers(tripId)
+
+      if (teams.length >= 2) {
+        const team1Count = existingPlayers.filter((tp) => tp.team === teams[0].id).length
+        const team2Count = existingPlayers.filter((tp) => tp.team === teams[1].id).length
+
+        assignedTeamId = team1Count <= team2Count ? teams[0].id : teams[1].id
+      } else if (teams.length === 1) {
+        assignedTeamId = teams[0].id
+      }
+    }
+
     const newTripPlayer: TripPlayer = {
       id: Math.random().toString(36).substr(2, 9),
       playerId,
       tripId,
-      team: teamId,
+      team: assignedTeamId,
     }
 
     const updatedTripPlayers = {
@@ -379,6 +395,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setTripPlayers(updatedTripPlayers)
     localStorage.setItem("tripPlayers", JSON.stringify(updatedTripPlayers))
+
+    if (assignedTeamId) {
+      const updatedTeams = { ...tripTeams }
+      if (updatedTeams[tripId]) {
+        updatedTeams[tripId] = updatedTeams[tripId].map((team) =>
+          team.id === assignedTeamId ? { ...team, members: [...team.members, newTripPlayer.id] } : team,
+        )
+        setTripTeams(updatedTeams)
+        localStorage.setItem("tripTeams", JSON.stringify(updatedTeams))
+      }
+    }
   }
 
   const getTripPlayers = (tripId: string) => {
@@ -396,12 +423,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const removeTripPlayer = (tripPlayerId: string) => {
-    const updatedTripPlayers = { ...tripPlayers }
-    for (const tripId in updatedTripPlayers) {
-      updatedTripPlayers[tripId] = updatedTripPlayers[tripId].filter((tp) => tp.id !== tripPlayerId)
+    const tripPlayer = Object.values(tripPlayers)
+      .flat()
+      .find((tp) => tp.id === tripPlayerId)
+
+    if (!tripPlayer) return
+
+    const updatedTripPlayers = {
+      ...tripPlayers,
+      [tripPlayer.tripId]: tripPlayers[tripPlayer.tripId].filter((tp) => tp.id !== tripPlayerId),
     }
     setTripPlayers(updatedTripPlayers)
     localStorage.setItem("tripPlayers", JSON.stringify(updatedTripPlayers))
+
+    if (tripPlayer.team) {
+      const updatedTeams = { ...tripTeams }
+      if (updatedTeams[tripPlayer.tripId]) {
+        updatedTeams[tripPlayer.tripId] = updatedTeams[tripPlayer.tripId].map((team) =>
+          team.id === tripPlayer.team ? { ...team, members: team.members.filter((m) => m !== tripPlayerId) } : team,
+        )
+        setTripTeams(updatedTeams)
+        localStorage.setItem("tripTeams", JSON.stringify(updatedTeams))
+      }
+    }
   }
 
   const updateTripPlayer = (tripPlayerId: string, updates: Partial<Omit<TripPlayer, "id">>) => {

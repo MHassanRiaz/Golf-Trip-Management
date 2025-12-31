@@ -15,8 +15,9 @@ export default function NewRoundPage() {
   const params = useParams()
   const router = useRouter()
   const tripId = params.tripId as string
-  const { addRound, getTeams, getRounds } = useAuth()
+  const { addRound, getTeams, getRounds, getTrip } = useAuth()
 
+  const trip = getTrip(tripId)
   const teams = getTeams(tripId)
   const existingRounds = getRounds(tripId)
 
@@ -27,7 +28,8 @@ export default function NewRoundPage() {
     teeBox: "White",
     format: "2v2" as "2v2" | "1v1",
     drinkingMode: false,
-    teamIds: [] as string[],
+    teamIds: teams.map((t) => t.id),
+    venueId: trip?.venueId || "",
   })
 
   const [error, setError] = useState("")
